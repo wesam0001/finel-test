@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pose Detection</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+  <style>
+    canvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="output" width="640" height="480"></canvas>
+
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('output');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    async function setupCamera() {
+      console.log("Setting up camera...");
+      videoElement.width = 640;
+      videoElement.height = 480;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true
+        });
+        videoElement.srcObject = stream;
+        console.log("Camera stream obtained.");
+      } catch (err) {
+        console.error('Error accessing the webcam:', err);
+      }
+
+      return new Promise((resolve) => {
+        videoElement.onloadedmetadata = () => {
+          resolve(videoElement);
+        };
+      });
+    }
+
+    async function loadPosenet() {
+      console.log("Loading PoseNet model...");
+      try {
+        const net = await posenet.load();
+        console.log("PoseNet model loaded.");
+        return net;
+      } catch (err) {
+        console.error("Error loading PoseNet model:", err);
+      }
+    }
+
+    function drawKeypoints(keypoints, minConfidence, ctx, scale = 1) {
+      keypoints.forEach(keypoint => {
+        if (keypoint.score >= minConfidence) {
+          const { y, x } = keypoint.position;
+          ctx.beginPath();
+          ctx.arc(x * scale, y * scale, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = 'aqua';
+          ctx.fill();
+        }
+      });
+    }
+
+    function drawSkeleton(keypoints, minConfidence, ctx, scale = 1) {
+      const adjacentKeyPoints = posenet.getAdjacentKeyPoints(keypoints, minConfidence);
+
+      adjacentKeyPoints.forEach(keypoints => {
+        const [[y1, x1], [y2, x2]] = keypoints.map(keypoint => [keypoint.position.y, keypoint.position.x]);
+        ctx.beginPath();
+        ctx.moveTo(x1 * scale, y1 * scale);
+        ctx.lineTo(x2 * scale, y2 * scale);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'aqua';
+        ctx.stroke();
+      });
+    }
+
+    async function detectPose(net) {
+      console.log("Detecting pose...");
+      try {
+        const pose = await net.estimateSinglePose(videoElement, {
+          flipHorizontal: false
+        });
+
+        console.log("Pose detected:", pose);
+
+        if (pose && pose.keypoints) {
+          console.log("Keypoints detected:", pose.keypoints);
+        } else {
+          console.log("No keypoints detected.");
+        }
+
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+        drawKeypoints(pose.keypoints, 0.5, canvasCtx);
+        drawSkeleton(pose.keypoints, 0.5, canvasCtx);
+
+        requestAnimationFrame(() => detectPose(net));
+      } catch (err) {
+        console.error("Error detecting pose:", err);
+      }
+    }
+
+    async function main() {
+      await setupCamera();
+      videoElement.play();
+      const net = await loadPosenet();
+      if (net) {
+        detectPose(net);
+      } else {
+        console.error("PoseNet model failed to load.");
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
